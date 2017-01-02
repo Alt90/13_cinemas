@@ -17,6 +17,7 @@ def parse_afisha_list(raw_html):
     movies_list = []
     for movie_info in movies_info:
         title = movie_info.find("h3", attrs={"class": "usetags"}).text
+        print('parse = %s' % title)
         count_cinemas = len(movie_info.find_all("td",
                                                 attrs={"class": "b-td-item"}))
         rating, count_ratings = get_rating(title, proxy_list)
@@ -37,12 +38,10 @@ def get_random_agent():
 
 
 def get_proxies_list():
-    proxy_url = '%s://%s/api/proxy?anonymity=%s&token=%s' % (
-        'http',
-        'www.freeproxy-list.ru',
-        'false',
-        'demo')
-    html = requests.get(proxy_url).text
+    proxy_url = 'http://www.freeproxy-list.ru/api/proxy'
+    params = {'anonymity': 'false',
+              'token': 'demo'}
+    html = requests.get(proxy_url, params=params).text
     proxies = html.split('\n')
     return proxies
 
@@ -52,42 +51,41 @@ def get_random_proxy(proxy_list):
 
 
 def get_html_movie(movie_title, proxy_list):
-    headers = {'Accept': 'text/plain',
-               'Accept-Encoding': 'UTF-8',
-               'Accept-Language': 'Ru-ru',
-               'Content-Type': 'text/html;charset=UTF-8',
-               'User-Agent': 'Agent:%s' % get_random_agent(), }
-    proxy_ip = get_random_proxy(proxy_list)
-    proxy = {"http": proxy_ip}
-    params = {'kp_query': movie_title,
-              'first': 'yes'}
-    print("proxy = %s, title = %s" % (proxy_ip, movie_title))
-    html = requests.session().get('http://kinopoisk.ru/index.php',
-                                  params=params,
-                                  headers=headers,
-                                  proxies=proxy,
-                                  timeout=TIMEOUT)
-    return html.content
-
-
-def get_rating(movie_title, proxy_list):
     while True:
         try:
-            info = BeautifulSoup(get_html_movie(movie_title, proxy_list),
-                                 'html.parser')
-            rating = info.find("span", class_="rating_ball").text
-            rating_counts = info.find("span", class_="ratingCount").text
-        except AttributeError:
-            rating, rating_counts = '0', '0'
-            break
+            proxy_ip = get_random_proxy(proxy_list)
+            headers = {'Accept': 'text/plain',
+                       'Accept-Encoding': 'UTF-8',
+                       'Accept-Language': 'Ru-ru',
+                       'Content-Type': 'text/html;charset=UTF-8',
+                       'User-Agent': 'Agent:%s' % get_random_agent(), }
+            proxy = {"http": proxy_ip}
+            params = {'kp_query': movie_title,
+                      'first': 'yes'}
+            html = requests.session().get('http://kinopoisk.ru/index.php',
+                                          params=params,
+                                          headers=headers,
+                                          proxies=proxy,
+                                          timeout=TIMEOUT)
         except (requests.exceptions.ConnectTimeout,
                 requests.exceptions.ConnectionError,
                 requests.exceptions.ProxyError,
                 requests.exceptions.ReadTimeout) as error:
             print('Reconnect...')
         else:
-            break
-    return (rating, rating_counts)
+            return html.content
+
+
+def get_rating(movie_title, proxy_list):
+    try:
+        movie_html = get_html_movie(movie_title, proxy_list)
+        info = BeautifulSoup(movie_html, 'html.parser')
+        rating = info.find("span", class_="rating_ball").text
+        rating_counts = info.find("span", class_="ratingCount").text
+    except AttributeError:
+        return '0', '0'
+    else:
+        return (rating, rating_counts)
 
 
 def output_movies_to_console(movies, count=10):
