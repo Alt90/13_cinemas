@@ -10,25 +10,19 @@ def fetch_afisha_page():
     return requests.get('http://www.afisha.ru/msk/schedule_cinema/')
 
 
-def parse_afisha_list(raw_html):
+def parse_afisha_list_page(raw_html):
     info = BeautifulSoup(raw_html.content, 'html.parser')
     movies_info = info.find_all("div", attrs={"class": "object"})
-    proxy_list = get_proxies_list()
-    movies_list = []
     for movie_info in movies_info:
         title = movie_info.find("h3", attrs={"class": "usetags"}).text
-        print('parse = %s' % title)
         count_cinemas = len(movie_info.find_all("td",
                                                 attrs={"class": "b-td-item"}))
-        rating, count_ratings = get_rating(title, proxy_list)
-        movies_list.append({'title': title,
-                            'count_cinemas': count_cinemas,
-                            'rating': rating,
-                            'count_ratings': count_ratings})
-    return movies_list
+        yield {'title': title,
+               'count_cinemas': count_cinemas}
 
 
 def get_random_agent():
+    """При реконекте меняет браузер подключения"""
     agent_list = [
         'Mozilla/5.0 (X11; Linux i686; rv:50.0) Gecko/20100101 Firefox/50.0',
         'Opera/9.80 (Windows NT 6.2; WOW64) Presto/2.12.388 Version/12.17',
@@ -47,38 +41,47 @@ def get_proxies_list():
 
 
 def get_random_proxy(proxy_list):
+    """При реконекте меняет шлюз подключения"""
     return random.choice(proxy_list)
 
 
-def get_html_movie(movie_title, proxy_list):
-    while True:
-        try:
-            proxy_ip = get_random_proxy(proxy_list)
-            headers = {'Accept': 'text/plain',
-                       'Accept-Encoding': 'UTF-8',
-                       'Accept-Language': 'Ru-ru',
-                       'Content-Type': 'text/html;charset=UTF-8',
-                       'User-Agent': 'Agent:%s' % get_random_agent(), }
-            proxy = {"http": proxy_ip}
-            params = {'kp_query': movie_title,
-                      'first': 'yes'}
-            html = requests.session().get('http://kinopoisk.ru/index.php',
-                                          params=params,
-                                          headers=headers,
-                                          proxies=proxy,
-                                          timeout=TIMEOUT)
-        except (requests.exceptions.ConnectTimeout,
-                requests.exceptions.ConnectionError,
-                requests.exceptions.ProxyError,
-                requests.exceptions.ReadTimeout) as error:
-            print('Reconnect...')
-        else:
-            return html.content
-
-
-def get_rating(movie_title, proxy_list):
+def get_html_by_title(movie_title, proxy_ip):
     try:
-        movie_html = get_html_movie(movie_title, proxy_list)
+        params = {'kp_query': movie_title,
+                  'first': 'yes'}
+        headers = {'Accept': 'text/plain',
+                   'Accept-Encoding': 'UTF-8',
+                   'Accept-Language': 'Ru-ru',
+                   'Content-Type': 'text/html;charset=UTF-8',
+                   'User-Agent': 'Agent:%s' % get_random_agent(), }
+        proxy = {"http": proxy_ip}
+        html = requests.session().get('http://kinopoisk.ru/index.php',
+                                      params=params,
+                                      headers=headers,
+                                      proxies=proxy,
+                                      timeout=TIMEOUT)
+    except (requests.exceptions.ConnectTimeout,
+            requests.exceptions.ConnectionError,
+            requests.exceptions.ProxyError,
+            requests.exceptions.ReadTimeout) as error:
+        return None
+    else:
+        return html.content
+
+
+def get_html_by_title_multiconnection(movie_title, proxy_list):
+    while True:
+        proxy_ip = get_random_proxy(proxy_list)
+        html = get_html_by_title(movie_title, proxy_ip)
+        if html is not None:
+            return html
+        else:
+            print('Reconnect...')
+
+
+def get_rating_by_title(movie_title, proxy_list):
+    try:
+        movie_html = get_html_by_title_multiconnection(movie_title, proxy_list)
         info = BeautifulSoup(movie_html, 'html.parser')
         rating = info.find("span", class_="rating_ball").text
         rating_counts = info.find("span", class_="ratingCount").text
@@ -86,6 +89,17 @@ def get_rating(movie_title, proxy_list):
         return '0', '0'
     else:
         return (rating, rating_counts)
+
+
+def get_ratings_to_movies_list(movies_list):
+    proxy_list = get_proxies_list()
+    for movie in movies_list:
+        print('parse = %s' % movie['title'])
+        rating, count_ratings = get_rating_by_title(movie['title'], proxy_list)
+        yield {'title': movie['title'],
+               'count_cinemas': movie['count_cinemas'],
+               'rating': rating,
+               'count_ratings': count_ratings}
 
 
 def output_movies_to_console(movies, count=10):
@@ -97,14 +111,15 @@ def output_movies_to_console(movies, count=10):
                                      movie['count_ratings']))
 
 
-def sort_movies(movies_list):
-    return sorted(movies_list,
-                  key=lambda k: k['rating'],
+def sort_movies_by_ratings(movies_list_with_ratings):
+    return sorted(movies_list_with_ratings,
+                  key=lambda movie: movie['rating'],
                   reverse=True)
 
 
 if __name__ == '__main__':
     afisha_page = fetch_afisha_page()
-    movies_list = parse_afisha_list(afisha_page)
-    movies_sorted_list = sort_movies(movies_list)
-    output_movies_to_console(movies_sorted_list)
+    movies_list = parse_afisha_list_page(afisha_page)
+    movies_list_with_ratings = get_ratings_to_movies_list(movies_list)
+    sorted_movies_list = sort_movies_by_ratings(movies_list_with_ratings)
+    output_movies_to_console(sorted_movies_list)
