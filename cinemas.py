@@ -1,9 +1,15 @@
 import requests
 import random
 from bs4 import BeautifulSoup
+import logging
 
 
 TIMEOUT = 10
+HANDLER = logging.FileHandler('cinemas.log')
+HANDLER.setLevel(logging.DEBUG)
+LOGGER = logging.getLogger('spam_application')
+LOGGER.setLevel(logging.DEBUG)
+LOGGER.addHandler(HANDLER)
 
 
 def fetch_afisha_page():
@@ -40,12 +46,7 @@ def get_proxies_list():
     return proxies
 
 
-def get_random_proxy(proxy_list):
-    """При реконекте меняет шлюз подключения"""
-    return random.choice(proxy_list)
-
-
-def get_html_by_title(movie_title, proxy_ip):
+def get_html_by_title(movie_title, proxy_list):
     try:
         params = {'kp_query': movie_title,
                   'first': 'yes'}
@@ -54,7 +55,7 @@ def get_html_by_title(movie_title, proxy_ip):
                    'Accept-Language': 'Ru-ru',
                    'Content-Type': 'text/html;charset=UTF-8',
                    'User-Agent': 'Agent:%s' % get_random_agent(), }
-        proxy = {"http": proxy_ip}
+        proxy = {"http": random.choice(proxy_list)}
         html = requests.session().get('http://kinopoisk.ru/index.php',
                                       params=params,
                                       headers=headers,
@@ -71,12 +72,11 @@ def get_html_by_title(movie_title, proxy_ip):
 
 def get_html_by_title_multiconnection(movie_title, proxy_list):
     while True:
-        proxy_ip = get_random_proxy(proxy_list)
-        html = get_html_by_title(movie_title, proxy_ip)
+        html = get_html_by_title(movie_title, proxy_list)
         if html is not None:
             return html
         else:
-            print('Reconnect...')
+            LOGGER.info('Reconnect...')
 
 
 def get_rating_by_title(movie_title, proxy_list):
@@ -94,7 +94,7 @@ def get_rating_by_title(movie_title, proxy_list):
 def get_ratings_to_movies_list(movies_list):
     proxy_list = get_proxies_list()
     for movie in movies_list:
-        print('parse = %s' % movie['title'])
+        LOGGER.info('parse = %s' % movie['title'])
         rating, count_ratings = get_rating_by_title(movie['title'], proxy_list)
         yield {'title': movie['title'],
                'count_cinemas': movie['count_cinemas'],
